@@ -67,7 +67,7 @@ define_disk_variables(){
     export POOL_DEVICE="${POOL_DISK}p${POOL_PART}"
   else
     export POOL_DEVICE="${POOL_DISK}${POOL_PART}"
-
+  fi
 }
 
 wipe_partitions() {
