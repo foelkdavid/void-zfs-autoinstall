@@ -32,6 +32,26 @@ networkcheck() { ping -c 3 www.kernel.org > $LOGFILE && return 0 || return 1; }
 
 eficheck() { dmesg | grep -i efivars >> $LOGFILE && return 0 || return 1; }
 
+select_drive(){
+    echo "Starting disk Partitioning"
+    echo -e "Found disks: (>1G)"
+    echo -e "${bold}"
+    lsblk -dp | grep G | awk '{print $1, $4}' &&
+    echo -e "${reset}"
+
+    read -p "Please enter the path of the desired Disk for your new System: " SYSTEMDISK &&
+    echo -e "${red}This will start the installation on "$SYSTEMDISK". ${reset}"
+    while true; do
+        read -p "Are you sure? [y/n]" YN
+        case $YN in
+            [Yy]* )  break; echo"done";;
+            [Nn]* )  echo "you selected no"; exit;;
+            * ) echo "Please answer yes or no.";;
+        esac
+    done
+}
+
+
 
 # greeting
 clear
@@ -43,7 +63,7 @@ printf "############################${reset}\n"
 printf "This Script is for ${blue}EFI${reset} Systems.\n"
 printf "Logs are at ${blue}$LOGFILE${reset}\n\n"
 
-# checks
+# check
 printf "Run as root? "
 rootcheck && ok || failexit
 printf "Checking connection. "
@@ -51,4 +71,8 @@ networkcheck && ok || failexit
 printf "Confirming EFI status. "
 eficheck && ok || failexit
 
-
+printf "Configuring live Environment. "
+#source /etc/os-release
+#export ID="$ID"
+#zgenhostid -f 0x00bab10c
+select_drive
