@@ -39,8 +39,8 @@ select_drive(){
     lsblk -dp | grep G | awk '{print $1, $4}' &&
     echo -e "${reset}"
 
-    read -p "Please enter the path of the desired Disk for your new System: " SYSTEMDISK &&
-    echo -e "${red}This will start the installation on "$SYSTEMDISK". ${reset}"
+    read -p "Please enter the path of the desired Disk for your new System: " BOOT_DISK &&
+    echo -e "${red}This will start the installation on "$BOOT_DISK". ${reset}"
     while true; do
         read -p "Are you sure? [y/n]" YN
         case $YN in
@@ -51,6 +51,69 @@ select_drive(){
     done
 }
 
+define_disk_variables(){
+  export BOOT_PART="1"
+
+  if [[ $BOOT_DISK == "/dev/nvme"* ]]; then
+    export BOOT_DEVICE="${BOOT_DISK}p${BOOT_PART}"
+  else
+    export BOOT_DEVICE="${BOOT_DISK}${BOOT_PART}"
+  fi
+
+  export POOL_DISK=$BOOT_DISK
+  export POOL_PART="2"
+
+  if [[ $POOL_DISK == "/dev/nvme"* ]]; then
+    export POOL_DEVICE="${POOL_DISK}p${POOL_PART}"
+  else
+    export POOL_DEVICE="${POOL_DISK}${POOL_PART}"
+
+}
+
+wipe_partitions() {
+  wipefs -a "$POOL_DISK"
+  wipefs -a "$BOOT_DISK"
+
+  sgdisk --zap-all "$POOL_DISK"
+  sgdisk --zap-all "$BOOT_DISK"
+}
+
+create_partitions() {
+  sgdisk -n "${BOOT_PART}:1m:+512m" -t "${BOOT_PART}:ef00" "$BOOT_DISK"
+  sgdisk -n "${POOL_PART}:0:-10m" -t "${POOL_PART}:bf00" "$POOL_DISK"
+
+
+  zpool create -f -o ashift=12 \
+   -O compression=lz4 \
+   -O acltype=posixacl \
+   -O xattr=sa \
+   -O relatime=on \
+   -O encryption=aes-256-gcm \
+   -O keyformat=passphrase \
+   -o autotrim=on \
+   -o compatibility=openzfs-2.1-linux \
+   -m none zroot "$POOL_DEVICE"
+}
+
+create_initfs() {
+  zfs create -o mountpoint=none zroot/ROOT
+  zfs create -o mountpoint=/ -o canmount=noauto zroot/ROOT/${ID}
+  zfs create -o mountpoint=/home zroot/home
+  zpool set bootfs=zroot/ROOT/${ID} zroot
+}
+
+verify_and_update() {
+  zpool export zroot
+  zpool import -N -R /mnt zroot
+  zfs load-key -L prompt zroot
+
+  zfs mount zroot/ROOT/${ID}
+  zfs mount zroot/home
+
+  mount | grep mnt
+
+  udevadm trigger
+}
 
 
 # greeting
@@ -63,7 +126,7 @@ printf "############################${reset}\n"
 printf "This Script is for ${blue}EFI${reset} Systems.\n"
 printf "Logs are at ${blue}$LOGFILE${reset}\n\n"
 
-# check
+#cv check
 printf "Run as root? "
 rootcheck && ok || failexit
 printf "Checking connection. "
@@ -72,7 +135,14 @@ printf "Confirming EFI status. "
 eficheck && ok || failexit
 
 printf "Configuring live Environment. "
-#source /etc/os-release
-#export ID="$ID"
-#zgenhostid -f 0x00bab10c
+source /etc/os-release
+export ID="$ID"
+zgenhostid -f 0x00bab10c
 select_drive
+define_disk_variables
+echo $BOOT_DEVICE
+
+wipe_partitions
+create_partitions
+create_initfs
+verify_and_update
