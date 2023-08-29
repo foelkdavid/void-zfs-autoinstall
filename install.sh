@@ -115,6 +115,69 @@ verify_and_update() {
   udevadm trigger
 }
 
+install_void(){
+  XBPS_ARCH=x86_64 xbps-install \
+    -S -R https://mirrors.servercentral.com/voidlinux/current \
+    -r /mnt base-system
+
+
+  cp /etc/hostid /mnt/etc
+  mkdir /mnt/etc/zfs
+
+
+  xchroot /mnt /bin/bash -- << EOCHROOT
+
+  echo 'KEYMAP="de"' >> /etc/rc.conf
+  echo 'HARDWARECLOCK="UTC"' >> /etc/rc.conf
+  ln -sf /usr/share/zoneinfo/Europe/Vienna /etc/localtime
+
+  echo 'en_US.UTF-8 UTF-8' >> /etc/default/libc-locales
+  echo 'de_AT.UTF-8 UTF-8' >> /etc/default/libc-locales
+
+  xbps-reconfigure -f glibc-locales
+  passwd
+
+  echo 'nofsck="yes"' >> /etc/dracut.conf.d/zol.conf
+  echo 'add_dracutmodules+=" zfs "' >> /etc/dracut.conf.d/zol.conf
+  echo 'omit_dracutmodules+=" btrfs "' >> /etc/dracut.conf.d/zol.conf
+  #echo 'install_items+=" /etc/zfs/zroot.key "' >> /etc/dracut.conf.d/zol.conf
+  
+  xbps-install -S zfs
+
+  zfs set org.zfsbootmenu:commandline="quiet loglevel=4" zroot/ROOT
+  #zfs set org.zfsbootmenu:keysource="zroot/ROOT/${ID}" zroot
+
+  mkfs.vfat -F32 "$BOOT_DEVICE"
+
+  echo '$( blkid | grep "$BOOT_DEVICE" | cut -d ' ' -f 2 ) /boot/efi vfat defaults 0 0' >> /etc/fstab
+
+  mkdir -p /boot/efi
+  mount /boot/efi
+
+  xbps-install -S curl
+
+  mkdir -p /boot/efi/EFI/ZBM
+  curl -o /boot/efi/EFI/ZBM/VMLINUZ.EFI -L https://get.zfsbootmenu.org/efi
+  cp /boot/efi/EFI/ZBM/VMLINUZ.EFI /boot/efi/EFI/ZBM/VMLINUZ-BACKUP.EFI
+
+  xbps-install efibootmgr
+
+  efibootmgr -c -d "$BOOT_DISK" -p "$BOOT_PART" \
+    -L "ZFSBootMenu (Backup)" \
+    -l \\EFI\\ZBM\\VMLINUZ-BACKUP.EFI
+
+  efibootmgr -c -d "$BOOT_DISK" -p "$BOOT_PART" \
+    -L "ZFSBootMenu" \
+    -l \\EFI\\ZBM\\VMLINUZ.EFI
+
+EOCHROOT
+
+umount -n -R /mnt
+zpool export zroot
+reboot
+
+}
+
 
 # greeting
 clear
