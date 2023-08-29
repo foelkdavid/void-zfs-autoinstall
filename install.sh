@@ -209,3 +209,4 @@ wipe_partitions
 create_partitions
 create_initfs
 verify_and_update
+install_void
